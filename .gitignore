@@ -1,0 +1,8 @@
+/target/
+**/*.rs.bk
+Cargo.lock
+
+.vscode
+
+# Test data should be fetched with gen_tests.sh
+/tests/data/

@@ -1,0 +1,8 @@
+[package]
+authors = ["Dylan MacKenzie <ecstaticmorse@gmail.com>"]
+name = "atdf"
+version = "0.1.0"
+
+[dependencies]
+failure = "0.1.1"
+minidom = "0.7.0"
