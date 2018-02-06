@@ -8,13 +8,18 @@ use std::io::BufReader;
 
 fn parse(path: &str) {
     let file = File::open(path).unwrap();
-    let mut file = BufReader::new(file);
-    let mut atdf = String::new();
-    file.read_to_string(&mut atdf).unwrap();
-    let root: minidom::Element = atdf.parse().unwrap();
+    let file = BufReader::new(file);
+    let atdf = atdf::parse(file).unwrap();
 
-    let devices = atdf::parse(&root).unwrap();
-    assert!(!devices.is_empty());
+    // let mut atdf = String::new();
+    // file.read_to_string(&mut atdf).unwrap();
+    // let root: minidom::Element = atdf.parse().unwrap();
+    // let devices = atdf::parse(&root).unwrap();
+
+    let device = atdf.devices().first().unwrap();
+    let d = atdf::device(device.clone(), atdf.modules());
+    panic!("{:#?}", d);
+    // println!("{}", device.family);
 }
 
 #[allow(non_snake_case)]

@@ -1,96 +1,187 @@
+//! The schema used in atdf files.
+//!
+//! TODO: Pluralized types (e.g. `Devices`) are needed because it's difficult to interpret a single
+//! XML tag as a newtype. Related to [https://github.com/RReverser/serde-xml-rs/issues/38].
+
 mod address;
-mod interrupt;
-mod peripheral;
-mod parse;
+mod register;
+mod util;
+
+use std::io;
+
+use serde_xml_rs as xml;
 
 pub use self::address::*;
-pub use self::interrupt::*;
-pub use self::peripheral::*;
-use self::parse::*;
+pub use self::register::*;
 
-use failure::Error;
-use minidom::Element;
-
-type Result<T> = ::std::result::Result<T, Error>;
-
-#[derive(Debug, Fail)]
-pub enum SchemaError {
-    #[fail(display = "Missing attribute: <{} {}=? ... />", _0, _1)]
-    MissingAttribute(String, String),
-
-    #[fail(display = "Missing child: <{} ...><{}?><{}/>", _0, _1, _0)]
-    MissingChild(String, String),
-
-    #[fail(display = "Missing child: <{} ...><{} name={}><{}/>", _0, _1, _2, _0)]
-    MissingNamedChild(String, String, String),
+pub fn parse<R>(r: R) -> Result<Atdf, xml::Error>
+    where R: io::Read,
+{
+    let atdf: Result<Atdf, _> = xml::deserialize(r);
+    atdf
 }
 
-pub fn parse(el: &Element) -> Result<Vec<Device>> {
-    assert!(el.name() == "avr-tools-device-file");
-
-    let modules = child(el, "modules")?;
-
-    let devices = child(el, "devices")?
-        .children()
-        .filter(|el| el.name() == "device")
-        .map(|el| Device::parse(el, modules))
-        .collect::<Result<Vec<_>>>()?;
-
-    Ok(devices)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Atdf {
+    devices: Devices,
+    modules: Modules,
 }
 
-#[derive(Debug)]
+impl Atdf {
+    pub fn devices(&self) -> &[Device] {
+        &self.devices.devices
+    }
+
+    pub fn modules(&self) -> &[Module] {
+        &self.modules.modules
+    }
+}
+
+/// All devices present in an atdf file
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Devices {
+    #[serde(rename = "device", default)]
+    devices: Vec<Device>
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Modules {
+    #[serde(rename = "module", default)]
+    modules: Vec<Module>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct Device {
     pub name: String,
-    address_spaces: Vec<AddressSpace>,
-    peripherals: Vec<Peripheral>,
+
+    #[serde(rename = "caption", default)]
+    pub description: String,
+
+    pub architecture: String,
+    pub family: String,
+
+    #[serde(default)]
+    address_spaces: AddressSpaces,
+
+    #[serde(default)]
+    peripherals: Peripherals,
+
+    #[serde(default)]
     interrupts: Interrupts,
 }
 
 impl Device {
-    pub fn parse(device: &Element, modules: &Element) -> Result<Self> {
-        assert!(device.name() == "device");
-        assert!(modules.name() == "modules");
+    pub fn address_spaces(&self) -> &[AddressSpace] {
+        &self.address_spaces.address_spaces
+    }
 
-        let name = attr(device, "name")?.to_owned();
+    pub fn peripherals(&self) -> &[PeripheralFamily] {
+        &self.peripherals.peripherals
+    }
 
-        let interrupts = child(device, "interrupts")?;
-        let interrupts = Interrupts::parse(interrupts)?;
-
-        let peripherals = child(device, "peripherals")?
-            .children()
-            .filter(|el| el.name() == "module")
-            .map(|el| Peripheral::parse(el, modules))
-            .collect::<Result<Vec<_>>>()?;
-
-        let address_spaces = child(device, "address-spaces")?
-            .children()
-            .filter(|el| el.name() == "address-space")
-            .map(AddressSpace::parse)
-            .collect::<Result<Vec<_>>>()?;
-
-        Ok(Device {
-            name,
-            interrupts,
-            peripherals,
-            address_spaces,
-        })
+    pub fn interrupts(&self) -> &[Interrupt] {
+        &self.interrupts.interrupts
     }
 }
 
-/// A range of bytes.
-#[derive(Debug)]
-pub struct ByteRange {
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+struct AddressSpaces {
+    #[serde(rename = "address-space", default)]
+    address_spaces: Vec<AddressSpace>
+}
+
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+struct Interrupts {
+    #[serde(rename = "interrupt", default)]
+    interrupts: Vec<Interrupt>,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+struct Peripherals {
+    #[serde(rename = "module", default)]
+    peripherals: Vec<PeripheralFamily>
+}
+
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+pub struct Interrupt {
+    pub name: String,
+
+    #[serde(rename = "caption", default)]
+    pub description: String,
+
+    #[serde(with = "util::int")]
+    pub index: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeripheralFamily {
+    pub name: String,
+
+    #[serde(rename = "instance", default)]
+    pub instances: Vec<Peripheral>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Peripheral {
+    pub name: String,
+
+    #[serde(rename = "caption", default)]
+    pub description: String,
+
+    #[serde(rename = "register-group")]
+    pub registers: Option<RegisterGroupLink>,
+
+    #[serde(default)]
+    signals: Signals,
+}
+
+impl Peripheral {
+    pub fn signals(&self) -> &[Signal] {
+        &self.signals.signals
+    }
+}
+
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+struct Signals {
+    #[serde(rename = "signal")]
+    signals: Vec<Signal>,
+}
+
+/// The name of a register-group in the modules section.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct RegisterGroupLink {
+    pub name: String,
+
+    #[serde(rename = "caption", default)]
+    pub description: String,
+
+    #[serde(default)]
+    pub name_in_module: String,
+
+    /// The name of the address_space in which this register group lives.
+    pub address_space: String,
+
+    /// The offset of this register group within the address space.
+    #[serde(with = "util::int")]
     pub offset: u32,
-    pub len: u32,
 }
 
-impl ByteRange {
-    pub fn parse(el: &Element, offset: &str) -> Result<Self> {
-        let offset = parse_uint(attr(el, offset)?)?;
-        let len = parse_uint(attr(el, "size")?)?;
+/// A list of register groups and enumerated values used for peripherals of the given type.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Module {
+    pub name: String,
 
-        Ok(ByteRange { offset, len })
-    }
+    #[serde(rename = "caption", default)]
+    pub description: String,
+
+    #[serde(rename = "register-group", default)]
+    pub register_groups: Vec<RegisterGroup>,
+
+    /// All value-groups must follow register-groups due to
+    /// https://github.com/RReverser/serde-xml-rs/issues/5
+    #[serde(rename = "value-group", default)]
+    pub value_groups: Vec<ValueGroup>,
 }
-
