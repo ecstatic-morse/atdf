@@ -2,6 +2,7 @@
 **/*.rs.bk
 Cargo.lock
 
+.gdb_history
 .vscode
 
 # Test data should be fetched with gen_tests.sh
