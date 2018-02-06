@@ -1,5 +1,4 @@
 #[macro_use] extern crate failure;
-extern crate minidom;
 extern crate serde;
 extern crate serde_xml_rs;
 #[macro_use] extern crate serde_derive;
